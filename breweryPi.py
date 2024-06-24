@@ -4,80 +4,63 @@ from flask_migrate import Migrate, upgrade
 from sqlalchemy import create_engine, text
 from werkzeug.security import generate_password_hash
 from app import createApp, db
-from app.models import Area, Element, ElementAttribute, ElementAttributeTemplate, ElementTemplate, Enterprise, EventFrame, EventFrameAttribute, \
-	EventFrameAttributeTemplate, EventFrameAttributeTemplateEventFrameTemplateView, EventFrameEventFrameGroup, EventFrameGroup, EventFrameNote, \
-	EventFrameTemplate, EventFrameTemplateView, Lookup, LookupValue, Message, Permission, Note, Role, Site, Tag, TagValue, TagValueNote, UnitOfMeasurement, User
+from app.models import (
+    Area, Element, ElementAttribute, ElementAttributeTemplate, 
+    ElementTemplate, Enterprise, EventFrame, EventFrameAttribute, 
+    EventFrameAttributeTemplate, EventFrameAttributeTemplateEventFrameTemplateView, 
+    EventFrameEventFrameGroup, EventFrameGroup, EventFrameNote, 
+    EventFrameTemplate, EventFrameTemplateView, Lookup, LookupValue, 
+    Message, Permission, Note, Role, Site, Tag, TagValue, TagValueNote, 
+    UnitOfMeasurement, User
+)
 
 application = app = createApp()
-migrate = Migrate(app, db, directory = "db/migrations")
+migrate = Migrate(app, db, directory="db/migrations")
 
 @app.shell_context_processor
 def make_shell_context():
-	return dict(app = app, db = db, Area = Area, Element = Element, ElementAttribute = ElementAttribute, ElementAttributeTemplate = ElementAttributeTemplate, 
-		ElementTemplate = ElementTemplate, Enterprise = Enterprise, EventFrame = EventFrame, EventFrameAttribute = EventFrameAttribute, 
-		EventFrameAttributeTemplate = EventFrameAttributeTemplate,
-		EventFrameAttributeTemplateEventFrameTemplateView = EventFrameAttributeTemplateEventFrameTemplateView,
-		EventFrameEventFrameGroup = EventFrameEventFrameGroup, EventFrameGroup = EventFrameGroup, EventFrameNote = EventFrameNote,
-		EventFrameTemplate = EventFrameTemplate, EventFrameTemplateView = EventFrameTemplateView, Lookup = Lookup, LookupValue = LookupValue, Message = Message,
-		Note = Note, Role = Role, Site = Site, Tag = Tag, TagValue = TagValue, TagValueNote = TagValueNote, UnitOfMeasurement = UnitOfMeasurement, User = User)
+    return dict(
+        app=app, db=db, Area=Area, Element=Element, ElementAttribute=ElementAttribute, 
+        ElementAttributeTemplate=ElementAttributeTemplate, ElementTemplate=ElementTemplate, 
+        Enterprise=Enterprise, EventFrame=EventFrame, EventFrameAttribute=EventFrameAttribute, 
+        EventFrameAttributeTemplate=EventFrameAttributeTemplate, 
+        EventFrameAttributeTemplateEventFrameTemplateView=EventFrameAttributeTemplateEventFrameTemplateView, 
+        EventFrameEventFrameGroup=EventFrameEventFrameGroup, EventFrameGroup=EventFrameGroup, 
+        EventFrameNote=EventFrameNote, EventFrameTemplate=EventFrameTemplate, 
+        EventFrameTemplateView=EventFrameTemplateView, Lookup=Lookup, 
+        LookupValue=LookupValue, Message=Message, Note=Note, Role=Role, 
+        Site=Site, Tag=Tag, TagValue=TagValue, TagValueNote=TagValueNote, 
+        UnitOfMeasurement=UnitOfMeasurement, User=User
+    )
 
-@app.cli.command(help = "Deploy Brewery Pi database.")
-@click.option("--admin", is_flag = True, help = 'Add the default admin ("pi") user. Requires defaults roles.')
-@click.option("--roles", is_flag = True, help = "Add the default roles.")
+@app.cli.command("deploy")
+@click.option("--admin", is_flag=True, help='Add the default admin ("pi") user. Requires default roles.')
+@click.option("--roles", is_flag=True, help="Add the default roles.")
 def deploy(admin, roles):
-	print ("Creating database {} if it does not exist...".format(current_app.config["MYSQL_DATABASE"]))
-	engine = create_engine(current_app.config["SQLALCHEMY_SERVER_URI"])
-	with engine.connect() as connection:
-		connection.execute(text("CREATE DATABASE IF NOT EXISTS {}".format(current_app.config["MYSQL_DATABASE"])))
-		print ("Running database upgrade...")
-		upgrade()
-		if roles == True or admin == True:
-			engine = create_engine(current_app.config["SQLALCHEMY_DATABASE_URI"])
-			connection = engine.connect()
-			if roles == True:
-				print ("Inserting default roles if needed...")
-				connection.execute(text(f"INSERT INTO `Role` (`Name`, `Permissions`) VALUES ('User', {Permission.DATA_ENTRY})"))
-				connection.execute(text(f"INSERT INTO `Role` (`Name`, `Permissions`) VALUES ('Administrator', 0xff)"))
+    print(f"Creating database {current_app.config['MYSQL_DATABASE']} if it does not exist...")
+    engine = create_engine(current_app.config["SQLALCHEMY_SERVER_URI"])
+    with engine.connect() as connection:
+        connection.execute(text(f"CREATE DATABASE IF NOT EXISTS {current_app.config['MYSQL_DATABASE']}"))
+        print("Running database upgrade...")
+        upgrade()
+        if roles or admin:
+            engine = create_engine(current_app.config["SQLALCHEMY_DATABASE_URI"])
+            connection = engine.connect()
+            if roles:
+                print("Inserting default roles if needed...")
+                connection.execute(text(f"INSERT INTO `Role` (`Name`, `Permissions`) VALUES ('User', {Permission.DATA_ENTRY})"))
+                connection.execute(text(f"INSERT INTO `Role` (`Name`, `Permissions`) VALUES ('Administrator', 0xff)"))
 
-			if admin == True:
-				print ("Inserting default administrator if needed...")
-				administratorRoleId = connection.execute(text("SELECT RoleId FROM Role WHERE Name = 'Administrator'")).scalar()
-				if administratorRoleId is None:
-					print('Administrator role does not exist. Cannot create default admin/"pi" user without it.')
-				else:
-					password = generate_password_hash("brewery", method = "pbkdf2")
-					connection.execute(text(f"INSERT INTO `User` (`Enabled`, `Name`, `PasswordHash`, `RoleId`) VALUES (1, 'pi', '{password}', {administratorRoleId})"))
+            if admin:
+                print("Inserting default administrator if needed...")
+                administratorRoleId = connection.execute(text("SELECT RoleId FROM Role WHERE Name = 'Administrator'")).scalar()
+                if administratorRoleId is None:
+                    print('Administrator role does not exist. Cannot create default admin/"pi" user without it.')
+                else:
+                    password = generate_password_hash("brewery", method="pbkdf2")
+                    connection.execute(text(f"INSERT INTO `User` (`Enabled`, `Name`, `PasswordHash`, `RoleId`) VALUES (1, 'pi', '{password}', {administratorRoleId})"))
 
-		connection.commit()
+        connection.commit()
 
-@app.cli.command(help = "Diplsay Brewery Pi element tree.")
-@click.option("--tag-areas", is_flag = True, help = "Show which area(s) element tags belong to.")
-def elements(tag_areas):
-	print('"*" represents a managed element.')
-	enterprises = Enterprise.query.order_by(Enterprise.Name)
-	for enterprise in enterprises:
-		level = 0
-		print(enterprise.Name)
-		for site in enterprise.Sites.order_by(Site.Name):
-			level = 1
-			print("{}{}".format("  " * level, site.Name))
-			for elementTemplate in site.ElementTemplates.order_by(ElementTemplate.Name):
-				level = 2
-				print("{}{}".format("  " * level, elementTemplate.Name))
-				for element in elementTemplate.Elements.order_by(Element.Name):
-					level = 3
-					print("{}{}{}".format("  " * level, element.Name, "" if element.TagAreaId is None else "*"))
-					if tag_areas:
-						tagAreas = []
-						for elementAttribute in element.ElementAttributes:
-							if elementAttribute.Tag.Area not in tagAreas:
-								tagAreas.append(elementAttribute.Tag.Area)
-						tagAreas.sort(key = lambda area: area.Name)
-						areas = ""
-						for area in tagAreas:
-							if areas == "":
-								areas = area.Name
-							else:
-								areas = "{}, ".format(areas) + area.Name
-						level = 4
-						print("{}Tag area(s): {}".format("  " * level, areas))
+if __name__ == "__main__":
+    app.run()
